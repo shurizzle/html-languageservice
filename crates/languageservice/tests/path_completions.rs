@@ -7,7 +7,10 @@ use html_languageservice::{
     FileType, LanguageServiceOptions, TextDocument, apply_edits, get_language_service,
 };
 
-const FIXTURE_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/path_completion_fixtures");
+const FIXTURE_ROOT: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/path_completion_fixtures"
+);
 
 fn file_uri(path: &str) -> String {
     format!("file://{path}")
@@ -131,7 +134,11 @@ fn assert_completion(list: &CompletionList, expected: &Item, document: &TextDocu
 
 fn test_completion2_for(value: &str, expected: &Expected, uri: &str, workspace_folder: &str) {
     let offset = value.find('|').unwrap_or(0);
-    let content = format!("{}{}", &value[..offset], &value[offset.saturating_add(1).min(value.len())..]);
+    let content = format!(
+        "{}{}",
+        &value[..offset],
+        &value[offset.saturating_add(1).min(value.len())..]
+    );
 
     let document = TextDocument::create(uri, "html", 0, &content);
     let position = document.position_at(offset);

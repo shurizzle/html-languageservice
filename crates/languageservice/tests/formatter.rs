@@ -76,12 +76,7 @@ fn range() {
         " </div>",
     ]
     .join("\n");
-    let expected = [
-        "<div  class = \"foo\">",
-        "  <img src=\"foo\">",
-        " </div>",
-    ]
-    .join("\n");
+    let expected = ["<div  class = \"foo\">", "  <img src=\"foo\">", " </div>"].join("\n");
     format(&content, &expected, true);
 }
 

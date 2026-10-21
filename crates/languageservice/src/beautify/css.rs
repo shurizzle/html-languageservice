@@ -157,11 +157,13 @@ impl CssBeautifier {
         let mut newline_count = 0;
         while self.input.test_char(whitespace_char(), 0) {
             self.ch = self.input.next_char().map(|c| c.to_string());
-            if allow_at_least_one_new_line && self.ch.as_deref() == Some("\n")
-                && (newline_count == 0 || newline_count < self.options.base.max_preserve_newlines) {
-                    newline_count += 1;
-                    self.output.add_new_line(true);
-                }
+            if allow_at_least_one_new_line
+                && self.ch.as_deref() == Some("\n")
+                && (newline_count == 0 || newline_count < self.options.base.max_preserve_newlines)
+            {
+                newline_count += 1;
+                self.output.add_new_line(true);
+            }
         }
         result
     }
@@ -256,10 +258,12 @@ impl CssBeautifier {
             let is_after_space = !whitespace.is_empty();
             let previous_ch = top_character.clone();
             self.ch = self.input.next_char().map(|c| c.to_string());
-            if self.ch.as_deref() == Some("\\") && self.input.has_next()
-                && let Some(next) = self.input.next_char() {
-                    self.ch = Some(format!("{}{next}", self.ch.clone().unwrap_or_default()));
-                }
+            if self.ch.as_deref() == Some("\\")
+                && self.input.has_next()
+                && let Some(next) = self.input.next_char()
+            {
+                self.ch = Some(format!("{}{next}", self.ch.clone().unwrap_or_default()));
+            }
             top_character = self.ch.clone();
 
             let ch = self.ch.clone();
@@ -402,10 +406,12 @@ impl CssBeautifier {
                 self.eat_whitespace(true);
                 self.output.add_new_line(false);
 
-                if self.options.newline_between_rules && !self.output.just_added_blankline()
-                    && self.input.peek(0) != Some('}') {
-                        self.output.add_new_line(true);
-                    }
+                if self.options.newline_between_rules
+                    && !self.output.just_added_blankline()
+                    && self.input.peek(0) != Some('}')
+                {
+                    self.output.add_new_line(true);
+                }
                 if self.input.peek(0) == Some(')') {
                     self.output.trim(true);
                     if self.options.brace_style == "expand" {
@@ -483,14 +489,15 @@ impl CssBeautifier {
                     {
                         self.input.back();
                     } else if let Some(inner) = self.ch.clone()
-                        && !inner.is_empty() {
-                            let s = self.eat_string(")");
-                            self.print_string(&format!("{inner}{s}"));
-                            if paren_level != 0 {
-                                paren_level -= 1;
-                                self.outdent();
-                            }
+                        && !inner.is_empty()
+                    {
+                        let s = self.eat_string(")");
+                        self.print_string(&format!("{inner}{s}"));
+                        if paren_level != 0 {
+                            paren_level -= 1;
+                            self.outdent();
                         }
+                    }
                 } else {
                     let mut space_needed = false;
                     if self.input.look_back("with") {

@@ -222,14 +222,16 @@ impl CompletionConfiguration {
 }
 
 /// Port of `HTMLFormatConfiguration`'s `templating` union (`boolean | array`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
 pub enum TemplatingFormatOption {
     Bool(bool),
     List(Vec<String>),
 }
 
 /// Port of `EmbeddedCSSFormatConfiguration`.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
 pub struct EmbeddedCSSFormatConfiguration {
     pub newline_between_selectors: Option<bool>,
     pub newline_between_rules: Option<bool>,
@@ -240,13 +242,16 @@ pub struct EmbeddedCSSFormatConfiguration {
 }
 
 /// Port of `HTMLFormatConfiguration`.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
 pub struct HTMLFormatConfiguration {
     pub tab_size: Option<i32>,
     pub insert_spaces: Option<bool>,
     pub indent_empty_lines: Option<bool>,
     pub wrap_line_length: Option<i32>,
+    #[serde(deserialize_with = "deserialize_optional_string_or_list")]
     pub unformatted: Option<String>,
+    #[serde(deserialize_with = "deserialize_optional_string_or_list")]
     pub content_unformatted: Option<String>,
     pub indent_inner_html: Option<bool>,
     pub wrap_attributes: Option<String>,
@@ -255,6 +260,7 @@ pub struct HTMLFormatConfiguration {
     pub max_preserve_new_lines: Option<i32>,
     pub indent_handlebars: Option<bool>,
     pub end_with_newline: Option<bool>,
+    #[serde(deserialize_with = "deserialize_optional_string_or_list")]
     pub extra_liners: Option<String>,
     pub indent_scripts: Option<String>,
     pub templating: Option<TemplatingFormatOption>,
@@ -262,7 +268,27 @@ pub struct HTMLFormatConfiguration {
     pub css: Option<EmbeddedCSSFormatConfiguration>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// `string | string[]`, stored comma-separated as the formatter expects.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum StringOrList {
+    String(String),
+    List(Vec<String>),
+}
+
+fn deserialize_optional_string_or_list<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<StringOrList>::deserialize(deserializer)?;
+    Ok(value.map(|value| match value {
+        StringOrList::String(text) => text,
+        StringOrList::List(list) => list.join(","),
+    }))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum AttributeDefaultValue {
     Empty,
     SingleQuotes,
@@ -612,6 +638,7 @@ pub struct IValueSet {
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Default)]
 pub struct HTMLDataV1 {
+    #[serde(default)]
     pub version: f64,
     #[serde(default)]
     pub tags: Vec<ITagData>,

@@ -42,7 +42,9 @@ pub struct CliError {
 
 impl CliError {
     fn new(message: impl Into<String>) -> CliError {
-        CliError { message: message.into() }
+        CliError {
+            message: message.into(),
+        }
     }
 }
 
@@ -80,9 +82,9 @@ impl Options {
                     ));
                 }
                 "--socket" => {
-                    let value = argv.get(i + 1).ok_or_else(|| {
-                        CliError::new("missing value for `--socket`")
-                    })?;
+                    let value = argv
+                        .get(i + 1)
+                        .ok_or_else(|| CliError::new("missing value for `--socket`"))?;
                     transport = Some(Transport::Socket {
                         port: parse_port(value)?,
                     });
@@ -98,9 +100,9 @@ impl Options {
                     i += 1;
                 }
                 "--clientProcessId" => {
-                    let value = argv.get(i + 1).ok_or_else(|| {
-                        CliError::new("missing value for `--clientProcessId`")
-                    })?;
+                    let value = argv
+                        .get(i + 1)
+                        .ok_or_else(|| CliError::new("missing value for `--clientProcessId`"))?;
                     client_process_id = Some(parse_pid(value)?);
                     i += 1;
                 }
@@ -204,18 +206,30 @@ mod tests {
     fn parses_pipe_in_both_forms() {
         assert_eq!(
             parse(&["--pipe", "/tmp/lsp.sock"]).unwrap().transport,
-            Transport::Pipe { name: "/tmp/lsp.sock".to_owned() }
+            Transport::Pipe {
+                name: "/tmp/lsp.sock".to_owned()
+            }
         );
         assert_eq!(
             parse(&["--pipe=/tmp/lsp.sock"]).unwrap().transport,
-            Transport::Pipe { name: "/tmp/lsp.sock".to_owned() }
+            Transport::Pipe {
+                name: "/tmp/lsp.sock".to_owned()
+            }
         );
     }
 
     #[test]
     fn parses_client_process_id() {
-        assert_eq!(parse(&["--clientProcessId", "42"]).unwrap().client_process_id, Some(42));
-        assert_eq!(parse(&["--clientProcessId=42"]).unwrap().client_process_id, Some(42));
+        assert_eq!(
+            parse(&["--clientProcessId", "42"])
+                .unwrap()
+                .client_process_id,
+            Some(42)
+        );
+        assert_eq!(
+            parse(&["--clientProcessId=42"]).unwrap().client_process_id,
+            Some(42)
+        );
     }
 
     #[test]

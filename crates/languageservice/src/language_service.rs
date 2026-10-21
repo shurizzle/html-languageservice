@@ -161,11 +161,7 @@ impl LanguageService {
         let path_result = participant.compute_completions(document, document_context);
         CompletionList {
             is_incomplete: result.is_incomplete || path_result.is_incomplete,
-            items: path_result
-                .items
-                .into_iter()
-                .chain(result.items)
-                .collect(),
+            items: path_result.items.into_iter().chain(result.items).collect(),
         }
     }
 

@@ -6,8 +6,9 @@ use std::sync::Arc;
 use crate::language_facts::data_manager::DataManager;
 use crate::text_document::TextDocument;
 use crate::types::{
-    Command, CompletionItem, CompletionItemKind, CompletionList, DocumentContext, FileSystemProvider,
-    FileType, HtmlAttributeValueContext, ICompletionParticipant, Range, TextEdit,
+    Command, CompletionItem, CompletionItemKind, CompletionList, DocumentContext,
+    FileSystemProvider, FileType, HtmlAttributeValueContext, ICompletionParticipant, Range,
+    TextEdit,
 };
 use crate::utils::strings::starts_with;
 
@@ -20,10 +21,7 @@ pub struct PathCompletionParticipant<'a> {
 }
 
 impl<'a> PathCompletionParticipant<'a> {
-    pub fn new(
-        data_manager: &'a DataManager,
-        read_directory: Arc<dyn FileSystemProvider>,
-    ) -> Self {
+    pub fn new(data_manager: &'a DataManager, read_directory: Arc<dyn FileSystemProvider>) -> Self {
         Self {
             data_manager,
             read_directory,
@@ -47,8 +45,11 @@ impl<'a> PathCompletionParticipant<'a> {
                 result.is_incomplete = true;
                 continue;
             }
-            let replace_range =
-                path_to_replace_range(&attribute_completion.value, &full_value, attribute_completion.range);
+            let replace_range = path_to_replace_range(
+                &attribute_completion.value,
+                &full_value,
+                attribute_completion.range,
+            );
             let suggestions = self.provide_path_suggestions(
                 &attribute_completion.value,
                 replace_range,
@@ -90,7 +91,8 @@ impl<'a> PathCompletionParticipant<'a> {
             if name.starts_with('.') {
                 continue;
             }
-            let mut item = create_completion_item(&name, file_type == FileType::Directory, replace_range);
+            let mut item =
+                create_completion_item(&name, file_type == FileType::Directory, replace_range);
             if let Some(filter) = &extension_filter {
                 if file_type == FileType::Directory {
                     result.push(item);
@@ -128,27 +130,29 @@ impl<'a> PathCompletionParticipant<'a> {
                 .and_then(|(_, v)| v.clone())
         };
 
-        if context.tag == "link" && context.attribute == "href"
-            && let Some(rel) = attribute_value("rel") {
-                if rel == "stylesheet" || rel == "\"stylesheet\"" || rel == "'stylesheet'" {
-                    return Some(ExtensionFilter {
-                        extensions: vec![".css", ".scss", ".sass", ".less"],
-                        exclusive: false,
-                    });
-                }
-                if rel == "icon"
-                    || rel == "\"icon\""
-                    || rel == "'icon'"
-                    || rel == "apple-touch-icon"
-                    || rel == "\"apple-touch-icon\""
-                    || rel == "'apple-touch-icon'"
-                {
-                    return Some(ExtensionFilter {
-                        extensions: vec![".ico", ".png", ".svg", ".jpg", ".jpeg", ".gif", ".webp"],
-                        exclusive: false,
-                    });
-                }
+        if context.tag == "link"
+            && context.attribute == "href"
+            && let Some(rel) = attribute_value("rel")
+        {
+            if rel == "stylesheet" || rel == "\"stylesheet\"" || rel == "'stylesheet'" {
+                return Some(ExtensionFilter {
+                    extensions: vec![".css", ".scss", ".sass", ".less"],
+                    exclusive: false,
+                });
             }
+            if rel == "icon"
+                || rel == "\"icon\""
+                || rel == "'icon'"
+                || rel == "apple-touch-icon"
+                || rel == "\"apple-touch-icon\""
+                || rel == "'apple-touch-icon'"
+            {
+                return Some(ExtensionFilter {
+                    extensions: vec![".ico", ".png", ".svg", ".jpg", ".jpeg", ".gif", ".webp"],
+                    exclusive: false,
+                });
+            }
+        }
 
         if context.tag == "script" && context.attribute == "src" {
             return Some(ExtensionFilter {
@@ -158,7 +162,9 @@ impl<'a> PathCompletionParticipant<'a> {
         }
         if context.tag == "img" && context.attribute == "src" {
             return Some(ExtensionFilter {
-                extensions: vec![".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".ico"],
+                extensions: vec![
+                    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".ico",
+                ],
                 exclusive: false,
             });
         }
@@ -184,7 +190,9 @@ impl ICompletionParticipant for PathCompletionParticipant<'_> {
             .data_manager
             .is_path_attribute(&context.tag, &context.attribute)
         {
-            self.attribute_completions.borrow_mut().push(context.clone());
+            self.attribute_completions
+                .borrow_mut()
+                .push(context.clone());
         }
     }
 }

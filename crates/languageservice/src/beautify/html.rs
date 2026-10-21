@@ -136,25 +136,8 @@ const DEFAULT_INLINE: [&str; 57] = [
 ];
 
 const DEFAULT_VOID: [&str; 19] = [
-    "area",
-    "base",
-    "br",
-    "col",
-    "embed",
-    "hr",
-    "img",
-    "input",
-    "keygen",
-    "link",
-    "menuitem",
-    "meta",
-    "param",
-    "source",
-    "track",
-    "wbr",
-    "!doctype",
-    "?xml",
-    "basefont",
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "keygen", "link", "menuitem",
+    "meta", "param", "source", "track", "wbr", "!doctype", "?xml", "basefont",
 ];
 
 impl HtmlOptions {
@@ -176,12 +159,7 @@ impl HtmlOptions {
             indent_body_inner_html: get_boolean(&raw, "indent_body_inner_html", true),
             indent_head_inner_html: get_boolean(&raw, "indent_head_inner_html", true),
             indent_handlebars: get_boolean(&raw, "indent_handlebars", true),
-            wrap_attributes: get_selection(
-                &raw,
-                "wrap_attributes",
-                &WRAP_ATTRIBUTES_VALUES,
-                None,
-            ),
+            wrap_attributes: get_selection(&raw, "wrap_attributes", &WRAP_ATTRIBUTES_VALUES, None),
             wrap_attributes_min_attrs: get_number(&raw, "wrap_attributes_min_attrs", Some(2)),
             wrap_attributes_indent_size: get_number(
                 &raw,
@@ -193,10 +171,11 @@ impl HtmlOptions {
             inline_custom_elements: get_boolean(&raw, "inline_custom_elements", true),
             void_elements,
             unformatted: get_string_array(&raw, "unformatted", &[]),
-            content_unformatted: get_string_array(&raw, "content_unformatted", &[
-                "pre",
-                "textarea",
-            ]),
+            content_unformatted: get_string_array(
+                &raw,
+                "content_unformatted",
+                &["pre", "textarea"],
+            ),
             unformatted_content_delimiter: get_characters(
                 &raw,
                 "unformatted_content_delimiter",
@@ -242,8 +221,10 @@ impl Printer {
     }
 
     fn set_wrap_point(&mut self) {
-        self.output
-            .set_indent(Some(self.indent_level as i64), Some(self.alignment_size as i64));
+        self.output.set_indent(
+            Some(self.indent_level as i64),
+            Some(self.alignment_size as i64),
+        );
         self.output.set_wrap_point();
     }
 
@@ -262,8 +243,10 @@ impl Printer {
     fn deindent(&mut self) {
         if self.indent_level > 0 {
             self.indent_level -= 1;
-            self.output
-                .set_indent(Some(self.indent_level as i64), Some(self.alignment_size as i64));
+            self.output.set_indent(
+                Some(self.indent_level as i64),
+                Some(self.alignment_size as i64),
+            );
         }
     }
 
@@ -409,9 +392,7 @@ impl HtmlTokenizer {
         (cur.type_ == TOKEN_TAG_CLOSE
             && (((cur.text == ">" || cur.text == "/>") && op.text.starts_with('<'))
                 || (cur.text == "}}" && op.text.starts_with("{{"))))
-            || (cur.type_ == TOKEN_CONTROL_FLOW_CLOSE
-                && cur.text == "}"
-                && op.text.ends_with('{'))
+            || (cur.type_ == TOKEN_CONTROL_FLOW_CLOSE && cur.text == "}" && op.text.ends_with('{'))
     }
 
     fn tokenize(&mut self) -> Vec<HtmlToken> {
@@ -504,7 +485,9 @@ impl HtmlTokenizer {
             return None;
         }
         let angular = self.options.base.templating.iter().any(|t| t == "angular");
-        if (angular || self.options.indent_handlebars) && c == '{' && self.input.peek(1) == Some('{')
+        if (angular || self.options.indent_handlebars)
+            && c == '{'
+            && self.input.peek(1) == Some('{')
         {
             if self.options.indent_handlebars && self.input.peek(2) == Some('!') {
                 let mut s = self.patterns.handlebars_comment.read(&mut self.input);
@@ -569,10 +552,7 @@ impl HtmlTokenizer {
             }
             return Some(self.create_token(TOKEN_TAG_CLOSE, s));
         }
-        if self.tokens[open].text.starts_with('{')
-            && c == '}'
-            && self.input.peek(1) == Some('}')
-        {
+        if self.tokens[open].text.starts_with('{') && c == '}' && self.input.peek(1) == Some('}') {
             self.input.next_char();
             self.input.next_char();
             return Some(self.create_token(TOKEN_TAG_CLOSE, "}}".to_string()));
@@ -583,7 +563,9 @@ impl HtmlTokenizer {
     fn read_script_and_style(&mut self, c: char, previous: Option<usize>) -> Option<HtmlToken> {
         let prev = previous?;
         if self.tokens[prev].type_ != TOKEN_TAG_CLOSE
-            || !self.tokens[prev].opened.is_some_and(|o| self.tokens[o].text.starts_with('<'))
+            || !self.tokens[prev]
+                .opened
+                .is_some_and(|o| self.tokens[o].text.starts_with('<'))
             || self.tokens[prev].text.starts_with('/')
         {
             return None;
@@ -597,7 +579,11 @@ impl HtmlTokenizer {
             token.type_ = TOKEN_TEXT.to_string();
             return Some(token);
         }
-        let re = Regex::new(&format!("(?is)</{tag_name}[\\n\\r\\t ]*?>", tag_name = regex::escape(&tag_name))).unwrap();
+        let re = Regex::new(&format!(
+            "(?is)</{tag_name}[\\n\\r\\t ]*?>",
+            tag_name = regex::escape(&tag_name)
+        ))
+        .unwrap();
         let resulting = self.input.read_until(&Pattern::new(re.as_str()), false);
         if !resulting.is_empty() {
             return Some(self.create_token(TOKEN_TEXT, resulting));
@@ -640,17 +626,27 @@ impl HtmlTokenizer {
 
     fn is_content_unformatted(&self, tag_name: &str) -> bool {
         !self.options.void_elements.iter().any(|v| v == tag_name)
-            && (self.options.content_unformatted.iter().any(|v| v == tag_name)
+            && (self
+                .options
+                .content_unformatted
+                .iter()
+                .any(|v| v == tag_name)
                 || self.options.unformatted.iter().any(|v| v == tag_name))
     }
 
     fn read_content_word(&mut self, c: char, open_token: Option<usize>) -> Option<HtmlToken> {
         let mut resulting = String::new();
         if !self.options.unformatted_content_delimiter.is_empty()
-            && c == self.options.unformatted_content_delimiter.chars().next().unwrap()
-                && let Some(p) = &self.patterns.unformatted_content_delimiter {
-                    resulting = p.read(&mut self.input);
-                }
+            && c == self
+                .options
+                .unformatted_content_delimiter
+                .chars()
+                .next()
+                .unwrap()
+            && let Some(p) = &self.patterns.unformatted_content_delimiter
+        {
+            resulting = p.read(&mut self.input);
+        }
         if resulting.is_empty() {
             if open_token.is_some_and(|o| self.tokens[o].type_ == TOKEN_CONTROL_FLOW_OPEN) {
                 resulting = self
@@ -730,7 +726,10 @@ impl HtmlTokenizer {
             return None;
         }
         if c == '@' {
-            let mut resulting = self.patterns.angular_control_flow_start.read(&mut self.input);
+            let mut resulting = self
+                .patterns
+                .angular_control_flow_start
+                .read(&mut self.input);
             if resulting.is_empty() {
                 return None;
             }
@@ -749,9 +748,7 @@ impl HtmlTokenizer {
             }
             return Some(self.create_token(TOKEN_CONTROL_FLOW_OPEN, resulting));
         }
-        if c == '}'
-            && open_token.is_some_and(|o| self.tokens[o].type_ == TOKEN_CONTROL_FLOW_OPEN)
-        {
+        if c == '}' && open_token.is_some_and(|o| self.tokens[o].type_ == TOKEN_CONTROL_FLOW_OPEN) {
             let resulting = self.input.next_char().map(String::from).unwrap_or_default();
             return Some(self.create_token(TOKEN_CONTROL_FLOW_CLOSE, resulting));
         }
@@ -821,7 +818,12 @@ impl ParserToken {
         token.tag_complete = false;
         token.parent = parent;
         token.text = raw.text.clone();
-        token.tag_start_char = raw.text.chars().next().map(String::from).unwrap_or_default();
+        token.tag_start_char = raw
+            .text
+            .chars()
+            .next()
+            .map(String::from)
+            .unwrap_or_default();
 
         if token.tag_start_char == "<" {
             let re = regex_tag_check();
@@ -848,12 +850,7 @@ impl ParserToken {
                             .to_string();
                     }
                 } else {
-                    token.tag_check = raw
-                        .text
-                        .split('>')
-                        .nth(1)
-                        .unwrap_or_default()
-                        .to_string();
+                    token.tag_check = raw.text.split('>').nth(1).unwrap_or_default().to_string();
                 }
             }
         }
@@ -870,16 +867,16 @@ impl ParserToken {
         } else {
             token.tag_check.clone()
         };
-        token.is_end_tag = !token.is_start_tag
-            || raw
-                .closed
-                .is_some_and(|c| tokens[c].text == "/>");
+        token.is_end_tag =
+            !token.is_start_tag || raw.closed.is_some_and(|c| tokens[c].text == "/>");
 
         let mut handlebar_starts = 2usize;
-        if token.tag_start_char == "{" && token.text.chars().count() >= 3
-            && token.text.chars().nth(2) == Some('~') {
-                handlebar_starts = 3;
-            }
+        if token.tag_start_char == "{"
+            && token.text.chars().count() >= 3
+            && token.text.chars().nth(2) == Some('~')
+        {
+            handlebar_starts = 3;
+        }
 
         let char_count = token.text.chars().count();
         token.is_end_tag = token.is_end_tag
@@ -1011,7 +1008,6 @@ fn regex_handlebar_if() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| Regex::new("\\{\\{#if").unwrap())
 }
-
 
 fn regex_js_type() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
@@ -1218,12 +1214,7 @@ impl HtmlBeautifier {
 
     fn get_tag_open_token(&mut self, raw: usize) -> usize {
         let parent = self.tag_stack.get_parser_token();
-        let token = ParserToken::from_raw(
-            &self.options,
-            parent,
-            &self.tokens[raw],
-            &self.tokens,
-        );
+        let token = ParserToken::from_raw(&self.options, parent, &self.tokens[raw], &self.tokens);
         let idx = self.parser_tokens.len();
         self.parser_tokens.push(token);
 
@@ -1275,7 +1266,11 @@ impl HtmlBeautifier {
             .is_some_and(|p| self.parser_tokens[p].tag_name == "p");
 
         if name == "body" {
-            result = result || self.tag_stack.try_pop("head", None, &mut self.printer).is_some();
+            result = result
+                || self
+                    .tag_stack
+                    .try_pop("head", None, &mut self.printer)
+                    .is_some();
         } else if name == "li" {
             result = result
                 || self
@@ -1298,10 +1293,14 @@ impl HtmlBeautifier {
                 .parent
                 .and_then(|p| self.parser_tokens[p].parent);
             if p_parent.is_none()
-                || !P_PARENT_EXCLUDES.contains(&self.parser_tokens[p_parent.unwrap()].tag_name.as_str())
+                || !P_PARENT_EXCLUDES
+                    .contains(&self.parser_tokens[p_parent.unwrap()].tag_name.as_str())
             {
                 result = result
-                    || self.tag_stack.try_pop("p", None, &mut self.printer).is_some();
+                    || self
+                        .tag_stack
+                        .try_pop("p", None, &mut self.printer)
+                        .is_some();
             }
         } else if name == "rp" || name == "rt" {
             result = result
@@ -1324,7 +1323,11 @@ impl HtmlBeautifier {
             result = result
                 || self
                     .tag_stack
-                    .try_pop("option", Some(&["select", "datalist", "optgroup"]), &mut self.printer)
+                    .try_pop(
+                        "option",
+                        Some(&["select", "datalist", "optgroup"]),
+                        &mut self.printer,
+                    )
                     .is_some();
         } else if name == "colgroup" {
             result = result
@@ -1378,7 +1381,11 @@ impl HtmlBeautifier {
             result = result
                 || self
                     .tag_stack
-                    .try_pop("tr", Some(&["table", "thead", "tbody", "tfoot"]), &mut self.printer)
+                    .try_pop(
+                        "tr",
+                        Some(&["table", "thead", "tbody", "tfoot"]),
+                        &mut self.printer,
+                    )
                     .is_some();
         } else if name == "th" || name == "td" {
             result = result
@@ -1407,13 +1414,14 @@ impl HtmlBeautifier {
 
     fn calculate_parent_multiline(&mut self, pt: usize) {
         if let Some(parent) = self.parser_tokens[pt].parent
-            && self.printer.output.just_added_newline() {
-                let child_inline = self.parser_tokens[pt].is_inline_element
-                    || self.parser_tokens[pt].is_unformatted;
-                if !(child_inline && self.parser_tokens[parent].is_inline_element) {
-                    self.parser_tokens[parent].multiline_content = true;
-                }
+            && self.printer.output.just_added_newline()
+        {
+            let child_inline =
+                self.parser_tokens[pt].is_inline_element || self.parser_tokens[pt].is_unformatted;
+            if !(child_inline && self.parser_tokens[parent].is_inline_element) {
+                self.parser_tokens[parent].multiline_content = true;
             }
+        }
     }
 
     fn set_tag_position(
@@ -1473,7 +1481,10 @@ impl HtmlBeautifier {
                 self.tag_stack
                     .indent_to_tag(&["if", "unless", "each"], &mut self.printer);
                 self.parser_tokens[parser_token].indent_content = true;
-                let found = self.printer.output.current_line_has_match(regex_handlebar_if());
+                let found = self
+                    .printer
+                    .output
+                    .current_line_has_match(regex_handlebar_if());
                 if !found {
                     self.printer.print_newline(false);
                 }
@@ -1499,7 +1510,8 @@ impl HtmlBeautifier {
                     && !(self.parser_tokens[last_tag_token].is_inline_element
                         || self.parser_tokens[last_tag_token].is_unformatted)
                     && !(last_token_type == TOKEN_TAG_CLOSE
-                        && self.parser_tokens[parser_token].start_tag_token == Some(last_tag_token))
+                        && self.parser_tokens[parser_token].start_tag_token
+                            == Some(last_tag_token))
                     && last_token_type != TK_CONTENT);
 
             if is_content_unformatted || is_unformatted {
@@ -1510,12 +1522,14 @@ impl HtmlBeautifier {
                 self.printer.print_newline(false);
             }
         } else {
-            self.parser_tokens[parser_token].indent_content =
-                self.parser_tokens[parser_token].custom_beautifier_name.is_none();
+            self.parser_tokens[parser_token].indent_content = self.parser_tokens[parser_token]
+                .custom_beautifier_name
+                .is_none();
 
             if tag_start_char == "<" {
                 if tag_name == "html" {
-                    self.parser_tokens[parser_token].indent_content = self.options.indent_inner_html;
+                    self.parser_tokens[parser_token].indent_content =
+                        self.options.indent_inner_html;
                 } else if tag_name == "head" {
                     self.parser_tokens[parser_token].indent_content =
                         self.options.indent_head_inner_html;
@@ -1635,7 +1649,8 @@ impl HtmlBeautifier {
         } else {
             if self.parser_tokens[last_tag_token].tag_start_char == "<" {
                 let first = self.tokens[raw].text.chars().next();
-                self.printer.set_space_before_token(first == Some('/'), true);
+                self.printer
+                    .set_space_before_token(first == Some('/'), true);
                 if self.is_wrap_attributes_force_expand_multiline
                     && self.parser_tokens[last_tag_token].has_wrapped_attrs
                 {
@@ -1781,26 +1796,23 @@ impl HtmlBeautifier {
             text = regex_trailing_ws_line().replace(&text, "").to_string();
 
             if (!g2.is_empty() || g3.contains('\n'))
-                && let Some(m) = regex_trailing_spaces().find(&g3) {
-                    self.tokens[raw].whitespace_before = m.as_str().to_string();
-                }
+                && let Some(m) = regex_trailing_spaces().find(&g3)
+            {
+                self.tokens[raw].whitespace_before = m.as_str().to_string();
+            }
         }
 
         if !text.is_empty() {
             let beautified = match custom.as_deref() {
                 Some("javascript") => Some(text.clone()),
-                Some("css") => {
-                    Some(super::css::css_beautify(
-                        &format!("{indentation}{text}"),
-                        &self.child_options(),
-                    ))
-                }
-                Some("html") => {
-                    Some(html_beautify(
-                        &format!("{indentation}{text}"),
-                        &self.child_options(),
-                    ))
-                }
+                Some("css") => Some(super::css::css_beautify(
+                    &format!("{indentation}{text}"),
+                    &self.child_options(),
+                )),
+                Some("html") => Some(html_beautify(
+                    &format!("{indentation}{text}"),
+                    &self.child_options(),
+                )),
                 _ => None,
             };
 

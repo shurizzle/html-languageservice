@@ -109,7 +109,10 @@ Mirrors upstream `src/` (paths below are relative to
   transport, no `lsp-types` dependency; params/results via `serde_json`). CLI
   parsing is in `crates/html-languageserver/src/cli.rs` and transport setup in
   `crates/html-languageserver/src/transport.rs` (stdio/TCP from `lsp-server`,
-  named pipe/Unix socket via the public `Message` API).
+  named pipe/Unix socket via the public `Message` API). Settings
+  (`format`/`completion`/`customData`) come from `initializationOptions` and
+  `workspace/didChangeConfiguration`, parsed in `src/settings.rs`; custom data
+  entries are inline `HTMLDataV1` objects (no file paths).
 - Tests: `crates/html-languageservice/tests/*.rs` (integration crates), one file
   per upstream `*.test.ts`, with shared helpers in
   `crates/html-languageservice/tests/support/mod.rs` (document builder, `|`

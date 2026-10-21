@@ -6,7 +6,10 @@ use std::sync::OnceLock;
 use crate::beautify::html::html_beautify;
 use crate::beautify::options::{OptValue, RawOptions};
 use crate::text_document::TextDocument;
-use crate::types::{EmbeddedCSSFormatConfiguration, HTMLFormatConfiguration, Position, Range, TextEdit, TemplatingFormatOption};
+use crate::types::{
+    EmbeddedCSSFormatConfiguration, HTMLFormatConfiguration, Position, Range,
+    TemplatingFormatOption, TextEdit,
+};
 
 /// Port of `format(document, range, options)`.
 pub fn format(
@@ -72,7 +75,8 @@ pub fn format(
         if start_offset != 0 {
             let start_of_line_offset =
                 document.offset_at(Position::create(range.unwrap().start.line, 0));
-            initial_indent_level = compute_indent_level(document.get_text(), start_of_line_offset, options);
+            initial_indent_level =
+                compute_indent_level(document.get_text(), start_of_line_offset, options);
         }
     } else {
         let end = document.position_at(value.len());
@@ -91,7 +95,10 @@ pub fn format(
         } else {
             "\t".repeat(initial_indent_level as usize)
         };
-        result = result.split('\n').collect::<Vec<_>>().join(&format!("\n{indent}"));
+        result = result
+            .split('\n')
+            .collect::<Vec<_>>()
+            .join(&format!("\n{indent}"));
         if range.unwrap().start.character == 0 {
             result = format!("{indent}{result}");
         }
@@ -217,7 +224,12 @@ fn build_options(
     );
     html.insert(
         "unformatted_content_delimiter".to_string(),
-        OptValue::Str(options.unformatted_content_delimiter.clone().unwrap_or_default()),
+        OptValue::Str(
+            options
+                .unformatted_content_delimiter
+                .clone()
+                .unwrap_or_default(),
+        ),
     );
 
     if let Some(css) = &options.css {
@@ -248,7 +260,10 @@ fn css_options(css: &EmbeddedCSSFormatConfiguration) -> RawOptions {
         raw.insert("preserve_newlines".to_string(), OptValue::Bool(v));
     }
     if let Some(v) = css.max_preserve_new_lines {
-        raw.insert("max_preserve_newlines".to_string(), OptValue::Number(v as f64));
+        raw.insert(
+            "max_preserve_newlines".to_string(),
+            OptValue::Number(v as f64),
+        );
     }
     raw
 }
@@ -267,11 +282,7 @@ fn get_tags_format_option(value: &Option<String>) -> Option<Vec<String>> {
     if list.is_empty() {
         return Some(Vec::new());
     }
-    Some(
-        list.split(',')
-            .map(|t| t.trim().to_lowercase())
-            .collect(),
-    )
+    Some(list.split(',').map(|t| t.trim().to_lowercase()).collect())
 }
 
 /// Port of `getTemplatingFormatOption(options, 'all')`.

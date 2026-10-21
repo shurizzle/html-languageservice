@@ -13,8 +13,7 @@ use std::thread;
 use std::time::Duration;
 
 use html_languageservice::{
-    CompletionConfiguration, DocumentContext, HTMLFormatConfiguration, LanguageServiceOptions,
-    TextDocument, get_language_service,
+    DocumentContext, LanguageServiceOptions, TextDocument, get_language_service,
 };
 use lsp_server::{Connection, ErrorCode, Message, Request, Response};
 use serde::Deserialize;
@@ -23,9 +22,11 @@ use serde_json::{Value, json};
 mod cli;
 mod convert;
 mod protocol;
+mod settings;
 mod transport;
 
 use protocol::*;
+use settings::Settings;
 
 /// A document tracked by the server.
 struct DocumentState {
@@ -37,6 +38,7 @@ struct DocumentState {
 struct Server {
     service: html_languageservice::LanguageService,
     documents: HashMap<String, DocumentState>,
+    settings: Settings,
 }
 
 impl Server {
@@ -50,7 +52,11 @@ impl Server {
         ))
     }
 
-    fn handle_request(&self, connection: &Connection, req: Request) -> Result<(), Box<dyn Error + Send + Sync>> {
+    fn handle_request(
+        &self,
+        connection: &Connection,
+        req: Request,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         match req.method.as_str() {
             "textDocument/completion" => {
                 self.completion(connection, req);
@@ -108,12 +114,11 @@ impl Server {
             return respond_null(connection, req.id);
         };
         let html_document = self.service.parse_html_document(&document);
-        let settings = CompletionConfiguration::default();
         let list = self.service.do_complete(
             &document,
             convert::position(params.position),
             &html_document,
-            Some(&settings),
+            Some(&self.settings.completion),
         );
         let items: Vec<Value> = list.items.iter().map(convert::completion_item).collect();
         respond(
@@ -180,7 +185,9 @@ impl Server {
             return respond_null(connection, req.id);
         };
         let html_document = self.service.parse_html_document(&document);
-        let symbols = self.service.find_document_symbols2(&document, &html_document);
+        let symbols = self
+            .service
+            .find_document_symbols2(&document, &html_document);
         let result: Vec<Value> = symbols.iter().map(convert::document_symbol).collect();
         respond(connection, req.id, json!(result));
     }
@@ -212,8 +219,12 @@ impl Server {
         let Some(document) = self.text_document(&params.text_document.uri) else {
             return respond_null(connection, req.id);
         };
-        let positions: Vec<html_languageservice::Position> =
-            params.positions.iter().copied().map(convert::position).collect();
+        let positions: Vec<html_languageservice::Position> = params
+            .positions
+            .iter()
+            .copied()
+            .map(convert::position)
+            .collect();
         let ranges = self.service.get_selection_ranges(&document, &positions);
         let result: Vec<Value> = ranges.iter().map(convert::selection_range).collect();
         respond(connection, req.id, json!(result));
@@ -230,7 +241,11 @@ impl Server {
         let Some(document) = self.text_document(&params.text_document.uri) else {
             return respond_null(connection, req.id);
         };
-        let edits = self.service.format(&document, None, &format_options(&params.options));
+        let edits = self.service.format(
+            &document,
+            None,
+            &self.settings.format_options(&params.options),
+        );
         let result: Vec<Value> = edits.iter().map(convert::text_edit).collect();
         respond(connection, req.id, json!(result));
     }
@@ -249,7 +264,7 @@ impl Server {
         let edits = self.service.format(
             &document,
             Some(convert::range(params.range)),
-            &format_options(&params.options),
+            &self.settings.format_options(&params.options),
         );
         let result: Vec<Value> = edits.iter().map(convert::text_edit).collect();
         respond(connection, req.id, json!(result));
@@ -291,9 +306,7 @@ impl Server {
             return respond_null(connection, req.id);
         };
         let resolver = UrlResolver;
-        let links = self
-            .service
-            .find_document_links(&document, &resolver);
+        let links = self.service.find_document_links(&document, &resolver);
         let result: Vec<Value> = links.iter().map(convert::document_link).collect();
         respond(connection, req.id, json!(result));
     }
@@ -327,7 +340,8 @@ impl Server {
     fn handle_notification(&mut self, not: lsp_server::Notification) {
         match not.method.as_str() {
             "textDocument/didOpen" => {
-                if let Ok(params) = serde_json::from_value::<DidOpenTextDocumentParams>(not.params) {
+                if let Ok(params) = serde_json::from_value::<DidOpenTextDocumentParams>(not.params)
+                {
                     let doc = params.text_document;
                     self.documents.insert(
                         doc.uri,
@@ -340,7 +354,8 @@ impl Server {
                 }
             }
             "textDocument/didChange" => {
-                if let Ok(params) = serde_json::from_value::<DidChangeTextDocumentParams>(not.params)
+                if let Ok(params) =
+                    serde_json::from_value::<DidChangeTextDocumentParams>(not.params)
                     && let Some(change) = params.content_changes.into_iter().last()
                     && let Some(state) = self.documents.get_mut(&params.text_document.uri)
                 {
@@ -353,8 +368,21 @@ impl Server {
                     self.documents.remove(&params.text_document.uri);
                 }
             }
+            "workspace/didChangeConfiguration" => {
+                if let Ok(params) =
+                    serde_json::from_value::<DidChangeConfigurationParams>(not.params)
+                {
+                    self.set_settings(Settings::from_value(&params.settings));
+                }
+            }
             _ => {}
         }
+    }
+
+    fn set_settings(&mut self, settings: Settings) {
+        self.service
+            .set_data_providers(true, settings.data_providers());
+        self.settings = settings;
     }
 }
 
@@ -365,14 +393,6 @@ impl DocumentContext for UrlResolver {
     fn resolve_reference(&self, reference: &str, base: &str) -> Option<String> {
         let base = url::Url::parse(base).ok()?;
         base.join(reference).ok().map(|u| u.to_string())
-    }
-}
-
-fn format_options(options: &FormattingOptions) -> HTMLFormatConfiguration {
-    HTMLFormatConfiguration {
-        tab_size: Some(options.tab_size as i32),
-        insert_spaces: Some(options.insert_spaces),
-        ..Default::default()
     }
 }
 
@@ -452,9 +472,16 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         watch_client_process(process_id as u32, Arc::clone(&shutdown_received));
     }
 
+    let settings = initialize_params
+        .get("initializationOptions")
+        .map(Settings::from_value)
+        .unwrap_or_default();
+    let mut service = get_language_service(LanguageServiceOptions::default());
+    service.set_data_providers(true, settings.data_providers());
     let mut server = Server {
-        service: get_language_service(LanguageServiceOptions::default()),
+        service,
         documents: HashMap::new(),
+        settings,
     };
 
     for message in &connection.receiver {
@@ -485,7 +512,11 @@ fn watch_client_process(process_id: u32, shutdown_received: Arc<AtomicBool>) {
         loop {
             thread::sleep(Duration::from_secs(3));
             if !process_alive(process_id) {
-                let code = if shutdown_received.load(Ordering::SeqCst) { 0 } else { 1 };
+                let code = if shutdown_received.load(Ordering::SeqCst) {
+                    0
+                } else {
+                    1
+                };
                 std::process::exit(code);
             }
         }

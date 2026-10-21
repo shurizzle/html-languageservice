@@ -1,6 +1,7 @@
 //! Minimal LSP parameter types (only the fields the server reads).
 
 use serde::Deserialize;
+use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct Position {
@@ -77,6 +78,12 @@ pub struct CompletionParams {
 pub struct SelectionRangeParams {
     pub text_document: TextDocumentIdentifier,
     pub positions: Vec<Position>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DidChangeConfigurationParams {
+    #[serde(default)]
+    pub settings: Value,
 }
 
 #[derive(Debug, Clone, Deserialize)]
