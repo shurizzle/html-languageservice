@@ -9,6 +9,7 @@
 //! - With no transport flag the server defaults to `--stdio` (upstream throws).
 
 use std::fmt;
+use std::path::PathBuf;
 
 /// The transport the server should speak LSP over.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,6 +31,9 @@ pub struct Options {
     pub transport: Transport,
     /// `--clientProcessId`: exit when this process is gone.
     pub client_process_id: Option<u32>,
+    /// `--config`: explicit configuration file; replaces every discovered
+    /// `.html.toml`.
+    pub config: Option<PathBuf>,
     pub help: bool,
     pub version: bool,
 }
@@ -66,6 +70,7 @@ impl Options {
         let argv: Vec<String> = args.into_iter().map(Into::into).collect();
         let mut transport = None;
         let mut client_process_id = None;
+        let mut config = None;
         let mut help = false;
         let mut version = false;
         let mut i = 0;
@@ -106,6 +111,13 @@ impl Options {
                     client_process_id = Some(parse_pid(value)?);
                     i += 1;
                 }
+                "--config" => {
+                    let value = argv
+                        .get(i + 1)
+                        .ok_or_else(|| CliError::new("missing value for `--config`"))?;
+                    config = Some(PathBuf::from(value));
+                    i += 1;
+                }
                 _ => {
                     if let Some(value) = arg.strip_prefix("--socket=") {
                         transport = Some(Transport::Socket {
@@ -117,6 +129,8 @@ impl Options {
                         });
                     } else if let Some(value) = arg.strip_prefix("--clientProcessId=") {
                         client_process_id = Some(parse_pid(value)?);
+                    } else if let Some(value) = arg.strip_prefix("--config=") {
+                        config = Some(PathBuf::from(value));
                     } else if arg.starts_with("--node-ipc=") {
                         return Err(CliError::new(
                             "`--node-ipc` is not supported: it requires a Node.js runtime",
@@ -132,6 +146,7 @@ impl Options {
         Ok(Options {
             transport: transport.unwrap_or(Transport::Stdio),
             client_process_id,
+            config,
             help,
             version,
         })
@@ -166,6 +181,8 @@ OPTIONS:
         --pipe <NAME>            Connect to a named pipe (Windows) or Unix
                                  domain socket (POSIX)
         --clientProcessId <PID>  Exit when the process with this id is gone
+        --config <PATH>          Use this configuration file instead of the
+                                 discovered `.html.toml` files
     -h, --help                   Print this help
     -v, --version                Print the version
 
@@ -230,6 +247,24 @@ mod tests {
             parse(&["--clientProcessId=42"]).unwrap().client_process_id,
             Some(42)
         );
+    }
+
+    #[test]
+    fn parses_config_in_both_forms() {
+        assert_eq!(
+            parse(&["--config", "/tmp/html.toml"]).unwrap().config,
+            Some(PathBuf::from("/tmp/html.toml"))
+        );
+        assert_eq!(
+            parse(&["--config=/tmp/html.toml"]).unwrap().config,
+            Some(PathBuf::from("/tmp/html.toml"))
+        );
+        assert_eq!(parse(&[]).unwrap().config, None);
+    }
+
+    #[test]
+    fn rejects_missing_config_value() {
+        assert!(parse(&["--config"]).is_err());
     }
 
     #[test]

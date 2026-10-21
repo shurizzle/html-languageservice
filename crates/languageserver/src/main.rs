@@ -20,13 +20,17 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 mod cli;
+mod config;
 mod convert;
 mod protocol;
 mod settings;
 mod transport;
+mod workspace;
 
+use config::LoadedConfig;
 use protocol::*;
 use settings::Settings;
+use workspace::Workspace;
 
 /// A document tracked by the server.
 struct DocumentState {
@@ -39,6 +43,18 @@ struct Server {
     service: html_languageservice::LanguageService,
     documents: HashMap<String, DocumentState>,
     settings: Settings,
+    workspace: Workspace,
+    /// `--config`: replaces every discovered configuration file.
+    explicit_config: Option<LoadedConfig>,
+    file_layer: Settings,
+    init_layer: Settings,
+    pull_layer: Settings,
+    push_layer: Option<Settings>,
+    /// Files whose modification requires reloading the file layer.
+    watched_paths: Vec<std::path::PathBuf>,
+    configuration_request: Option<lsp_server::RequestId>,
+    next_request_id: i32,
+    supports_dynamic_watchers: bool,
 }
 
 impl Server {
@@ -114,11 +130,12 @@ impl Server {
             return respond_null(connection, req.id);
         };
         let html_document = self.service.parse_html_document(&document);
+        let settings = self.settings.completion();
         let list = self.service.do_complete(
             &document,
             convert::position(params.position),
             &html_document,
-            Some(&self.settings.completion),
+            Some(&settings),
         );
         let items: Vec<Value> = list.items.iter().map(convert::completion_item).collect();
         respond(
@@ -337,7 +354,7 @@ impl Server {
         }
     }
 
-    fn handle_notification(&mut self, not: lsp_server::Notification) {
+    fn handle_notification(&mut self, connection: &Connection, not: lsp_server::Notification) {
         match not.method.as_str() {
             "textDocument/didOpen" => {
                 if let Ok(params) = serde_json::from_value::<DidOpenTextDocumentParams>(not.params)
@@ -372,17 +389,172 @@ impl Server {
                 if let Ok(params) =
                     serde_json::from_value::<DidChangeConfigurationParams>(not.params)
                 {
-                    self.set_settings(Settings::from_value(&params.settings));
+                    self.push_layer = Some(Settings::from_value(&params.settings));
+                    self.recompute_settings();
+                }
+            }
+            "workspace/didChangeWorkspaceFolders" => {
+                if let Ok(params) =
+                    serde_json::from_value::<DidChangeWorkspaceFoldersParams>(not.params)
+                {
+                    let mut warnings = Vec::new();
+                    self.workspace
+                        .add_folders(&params.event.added, &mut warnings);
+                    self.workspace.remove_folders(&params.event.removed);
+                    let mut reload_warnings = self.reload_file_layer();
+                    warnings.append(&mut reload_warnings);
+                    self.recompute_settings();
+                    show_warnings(connection, &warnings);
+                    if self.supports_dynamic_watchers {
+                        self.register_watchers(connection);
+                    }
+                }
+            }
+            "workspace/didChangeWatchedFiles" => {
+                if let Ok(params) =
+                    serde_json::from_value::<DidChangeWatchedFilesParams>(not.params)
+                    && params
+                        .changes
+                        .iter()
+                        .any(|change| self.is_watched(&change.uri))
+                {
+                    let warnings = self.reload_file_layer();
+                    self.recompute_settings();
+                    show_warnings(connection, &warnings);
                 }
             }
             _ => {}
         }
     }
 
-    fn set_settings(&mut self, settings: Settings) {
-        self.service
-            .set_data_providers(true, settings.data_providers());
+    /// Loads the configuration file layer: the explicit `--config` file, or
+    /// the per-user file plus the `.html.toml` of every workspace root.
+    fn reload_file_layer(&mut self) -> Vec<String> {
+        let mut warnings = Vec::new();
+        let mut files: Vec<LoadedConfig> = Vec::new();
+
+        if let Some(explicit) = &self.explicit_config {
+            files.push(explicit.clone());
+        } else {
+            if let Some(path) = config::user_config_path() {
+                match config::load_explicit(&path) {
+                    Ok(loaded) => files.push(loaded),
+                    Err(error) => warnings.push(error.to_string()),
+                }
+            }
+            let (discovered, mut discover_warnings) = config::discover(&self.workspace.roots());
+            warnings.append(&mut discover_warnings);
+            files.extend(discovered);
+        }
+
+        let mut layer = Settings::default();
+        let mut watched_paths = Vec::new();
+        for file in &files {
+            let (settings, mut file_warnings) = Settings::from_config_file(file);
+            warnings.append(&mut file_warnings);
+            layer = Settings::merge(layer, settings);
+            watched_paths.push(file.path.clone());
+            for path in &file.custom_data_paths {
+                watched_paths.push(file.resolve(path));
+            }
+        }
+
+        self.watched_paths = watched_paths;
+        self.file_layer = layer;
+        warnings
+    }
+
+    /// Rebuilds the effective settings from every layer.
+    fn recompute_settings(&mut self) {
+        let mut settings = self.file_layer.clone();
+        settings = Settings::merge(settings, self.init_layer.clone());
+        settings = Settings::merge(settings, self.pull_layer.clone());
+        if let Some(push) = &self.push_layer {
+            settings = Settings::merge(settings, push.clone());
+        }
+        self.service.set_data_providers(
+            settings.use_default_data_provider(),
+            settings.data_providers(),
+        );
         self.settings = settings;
+    }
+
+    /// Asks the client for the `html` configuration section.
+    fn request_configuration(&mut self, connection: &Connection) {
+        self.next_request_id += 1;
+        let id = lsp_server::RequestId::from(self.next_request_id);
+        let request = Request::new(
+            id.clone(),
+            "workspace/configuration".to_string(),
+            json!({ "items": [{ "section": "html" }] }),
+        );
+        if connection.sender.send(Message::Request(request)).is_ok() {
+            self.configuration_request = Some(id);
+        }
+    }
+
+    fn on_configuration_response(&mut self, response: Response) {
+        self.configuration_request = None;
+        let value = match response.response_result {
+            Ok(Value::Array(items)) => items.into_iter().next().unwrap_or(Value::Null),
+            Ok(value) => value,
+            Err(_) => return,
+        };
+        if value.is_null() {
+            return;
+        }
+        self.pull_layer = Settings::from_value(&value);
+        self.recompute_settings();
+    }
+
+    fn is_watched(&self, uri: &str) -> bool {
+        let Ok(parsed) = url::Url::parse(uri) else {
+            return false;
+        };
+        let Ok(path) = parsed.to_file_path() else {
+            return false;
+        };
+        self.watched_paths.contains(&path)
+    }
+
+    fn register_watchers(&mut self, connection: &Connection) {
+        let mut globs: Vec<String> = self
+            .watched_paths
+            .iter()
+            .map(|path| path.to_string_lossy().into_owned())
+            .collect();
+        if globs.is_empty() {
+            globs.push(format!("**/{}", config::CONFIG_FILE_NAME));
+        }
+        let watchers: Vec<Value> = globs
+            .iter()
+            .map(|glob| json!({ "globPattern": glob, "kind": 7 }))
+            .collect();
+
+        self.next_request_id += 1;
+        let request = Request::new(
+            lsp_server::RequestId::from(self.next_request_id),
+            "client/registerCapability".to_string(),
+            json!({
+                "registrations": [{
+                    "id": "html-languageserver-watch-config",
+                    "method": "workspace/didChangeWatchedFiles",
+                    "registerOptions": { "watchers": watchers }
+                }]
+            }),
+        );
+        let _ = connection.sender.send(Message::Request(request));
+    }
+}
+
+fn show_warnings(connection: &Connection, warnings: &[String]) {
+    for warning in warnings {
+        let _ = connection
+            .sender
+            .send(Message::Notification(lsp_server::Notification::new(
+                "window/showMessage".to_string(),
+                json!({ "type": 2, "message": warning }),
+            )));
     }
 }
 
@@ -459,7 +631,10 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         "documentRangeFormattingProvider": true,
         "renameProvider": { "prepareProvider": false },
         "documentLinkProvider": { "resolveProvider": false },
-        "linkedEditingRangeProvider": true
+        "linkedEditingRangeProvider": true,
+        "workspace": {
+            "workspaceFolders": { "supported": true, "changeNotifications": true }
+        }
     });
 
     let initialize_params = connection.initialize(capabilities)?;
@@ -472,17 +647,55 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         watch_client_process(process_id as u32, Arc::clone(&shutdown_received));
     }
 
-    let settings = initialize_params
-        .get("initializationOptions")
-        .map(Settings::from_value)
-        .unwrap_or_default();
-    let mut service = get_language_service(LanguageServiceOptions::default());
-    service.set_data_providers(true, settings.data_providers());
-    let mut server = Server {
-        service,
-        documents: HashMap::new(),
-        settings,
+    let params: InitializeParams =
+        serde_json::from_value(initialize_params.clone()).unwrap_or_default();
+    let explicit_config = match &options.config {
+        Some(path) => match config::load_explicit(path) {
+            Ok(loaded) => Some(loaded),
+            Err(error) => {
+                eprintln!("error: {error}");
+                std::process::exit(2);
+            }
+        },
+        None => None,
     };
+
+    let (workspace, mut warnings) = Workspace::from_initialize(&params);
+
+    let mut server = Server {
+        service: get_language_service(LanguageServiceOptions::default()),
+        documents: HashMap::new(),
+        settings: Settings::default(),
+        workspace,
+        explicit_config,
+        file_layer: Settings::default(),
+        init_layer: initialize_params
+            .get("initializationOptions")
+            .map(Settings::from_value)
+            .unwrap_or_default(),
+        pull_layer: Settings::default(),
+        push_layer: None,
+        watched_paths: Vec::new(),
+        configuration_request: None,
+        next_request_id: 0,
+        supports_dynamic_watchers: params
+            .capabilities
+            .workspace
+            .did_change_watched_files
+            .dynamic_registration,
+    };
+
+    let mut reload_warnings = server.reload_file_layer();
+    warnings.append(&mut reload_warnings);
+    server.recompute_settings();
+    show_warnings(&connection, &warnings);
+
+    if params.capabilities.workspace.configuration {
+        server.request_configuration(&connection);
+    }
+    if server.supports_dynamic_watchers {
+        server.register_watchers(&connection);
+    }
 
     for message in &connection.receiver {
         match message {
@@ -493,8 +706,13 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 }
                 server.handle_request(&connection, req)?;
             }
-            Message::Notification(not) => server.handle_notification(not),
-            Message::Response(_) => {}
+            Message::Notification(not) => server.handle_notification(&connection, not),
+            Message::Response(response) => {
+                let is_configuration = server.configuration_request.as_ref() == Some(&response.id);
+                if is_configuration {
+                    server.on_configuration_response(response);
+                }
+            }
         }
     }
 

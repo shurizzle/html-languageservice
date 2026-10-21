@@ -119,3 +119,106 @@ pub struct RenameParams {
 /// Both map onto the same shape (`{ textDocument }`).
 pub type DocumentSymbolParams = TextDocumentParams;
 pub type DocumentLinkParams = TextDocumentParams;
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct WorkspaceFolder {
+    pub uri: String,
+    #[serde(default)]
+    pub name: String,
+}
+
+/// Subset of `InitializeParams` the server reads.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InitializeParams {
+    #[serde(default)]
+    pub root_uri: Option<String>,
+    #[serde(default)]
+    pub root_path: Option<String>,
+    #[serde(default)]
+    pub workspace_folders: Option<Vec<WorkspaceFolder>>,
+    #[serde(default)]
+    pub capabilities: ClientCapabilities,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ClientCapabilities {
+    #[serde(default)]
+    pub workspace: WorkspaceClientCapabilities,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceClientCapabilities {
+    #[serde(default)]
+    pub configuration: bool,
+    #[serde(default)]
+    pub did_change_watched_files: DidChangeWatchedFilesClientCapabilities,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DidChangeWatchedFilesClientCapabilities {
+    #[serde(default)]
+    pub dynamic_registration: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkspaceFoldersChangeEvent {
+    #[serde(default)]
+    pub added: Vec<WorkspaceFolder>,
+    #[serde(default)]
+    pub removed: Vec<WorkspaceFolder>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DidChangeWorkspaceFoldersParams {
+    pub event: WorkspaceFoldersChangeEvent,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileEvent {
+    pub uri: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DidChangeWatchedFilesParams {
+    #[serde(default)]
+    pub changes: Vec<FileEvent>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parses_initialize_params() {
+        let params: InitializeParams = serde_json::from_value(json!({
+            "rootUri": "file:///work",
+            "capabilities": {
+                "workspace": {
+                    "configuration": true,
+                    "didChangeWatchedFiles": { "dynamicRegistration": true }
+                }
+            }
+        }))
+        .unwrap();
+        assert_eq!(params.root_uri.as_deref(), Some("file:///work"));
+        assert!(params.capabilities.workspace.configuration);
+        assert!(
+            params
+                .capabilities
+                .workspace
+                .did_change_watched_files
+                .dynamic_registration
+        );
+    }
+
+    #[test]
+    fn initializes_from_empty_object() {
+        let params: InitializeParams = serde_json::from_value(json!({})).unwrap();
+        assert!(params.workspace_folders.is_none());
+        assert!(!params.capabilities.workspace.configuration);
+    }
+}

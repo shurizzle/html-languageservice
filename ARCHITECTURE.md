@@ -105,6 +105,12 @@ Mirrors upstream `src/` (paths below are relative to
 ## Entry points
 
 - Library: `get_language_service(...)` in `language_service.rs`.
+- Server configuration: `crates/languageserver/src/config.rs` loads `.html.toml`
+  (user dir or workspace roots, or a `--config` file) and
+  `crates/languageserver/src/settings.rs` merges the layers
+  (file < `initializationOptions` < `workspace/configuration` <
+  `didChangeConfiguration`); `crates/languageserver/src/workspace.rs` tracks
+  workspace folders and maps document URIs to roots.
 - LSP server binary: `crates/html-languageserver/src/main.rs` (`lsp-server`
   transport, no `lsp-types` dependency; params/results via `serde_json`). CLI
   parsing is in `crates/html-languageserver/src/cli.rs` and transport setup in
