@@ -25,6 +25,8 @@ This repository is a Cargo workspace with two crates:
   `LanguageService::format`, including embedded `<style>` CSS options.
 - **Path completion** — `LanguageService::do_complete2` via a pluggable
   `FileSystemProvider`.
+- **PHP blocks** — `<?php ... ?>` / `<?= ... ?>` regions are masked before
+  scanning (via Mago's PHP lexer), so embedded PHP never parses as HTML.
 
 Every service from upstream `src/` is ported.
 `crates/languageservice/tests/*.rs` contains one integration test per

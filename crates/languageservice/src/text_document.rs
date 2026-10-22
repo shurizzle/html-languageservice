@@ -5,6 +5,7 @@
 //! UTF-16 code units).
 
 use crate::types::{Position, Range, TextEdit};
+use std::sync::OnceLock;
 
 #[derive(Debug, Clone)]
 pub struct TextDocument {
@@ -12,6 +13,7 @@ pub struct TextDocument {
     language_id: String,
     version: i32,
     text: String,
+    scanner_text: OnceLock<String>,
     utf16_len: usize,
     line_offsets_utf16: Vec<usize>,
     line_offsets_byte: Vec<usize>,
@@ -31,6 +33,7 @@ impl TextDocument {
             language_id: language_id.into(),
             version,
             text,
+            scanner_text: OnceLock::new(),
             utf16_len,
             line_offsets_utf16,
             line_offsets_byte,
@@ -56,6 +59,17 @@ impl TextDocument {
     /// Full document text.
     pub fn get_text(&self) -> &str {
         &self.text
+    }
+
+    /// Text for the HTML scanner: PHP blocks replaced by spaces, so embedded
+    /// PHP is never parsed as HTML. Cached for the lifetime of this document
+    /// version; identical to [`Self::get_text`] when there is no PHP.
+    pub fn get_scanner_text(&self) -> &str {
+        if !crate::parser::may_contain_php(&self.text) {
+            return &self.text;
+        }
+        self.scanner_text
+            .get_or_init(|| crate::parser::mask_text(&self.text))
     }
 
     /// Text covered by `range`.
@@ -192,4 +206,29 @@ pub fn apply_edits(document: &TextDocument, edits: &[TextEdit]) -> String {
     }
     spans.push_str(&text[document.byte_offset_at(last_modified_offset)..]);
     spans
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TextDocument;
+
+    #[test]
+    fn scanner_text_is_masked_and_cached() {
+        let doc = TextDocument::create("file:///a.php", "php", 0, r#"<?php echo "?>"; ?><div>"#);
+        let scanner_text = doc.get_scanner_text();
+
+        assert_eq!(doc.get_text(), r#"<?php echo "?>"; ?><div>"#);
+        assert_eq!(
+            scanner_text.encode_utf16().count(),
+            doc.get_text().encode_utf16().count()
+        );
+        assert!(scanner_text.ends_with("<div>"));
+        assert!(std::ptr::eq(scanner_text, doc.get_scanner_text()));
+    }
+
+    #[test]
+    fn scanner_text_is_borrowed_without_php() {
+        let doc = TextDocument::create("file:///a.html", "html", 0, "<div></div>");
+        assert!(std::ptr::eq(doc.get_text(), doc.get_scanner_text()));
+    }
 }

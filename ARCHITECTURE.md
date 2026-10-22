@@ -28,6 +28,7 @@ Mirrors upstream `src/` (paths below are relative to
 | `src/parser/html_scanner.rs` | `parser/htmlScanner.ts` | tokenizer |
 | `src/parser/html_parser.rs` | `parser/htmlParser.ts` | document tree |
 | `src/parser/html_entities.rs` | `parser/htmlEntities.ts` | entity table (generated) |
+| `src/parser/php.rs` | — | masks `<?php ... ?>` blocks before scanning (mago lexer) |
 | `src/language_facts/data_provider.rs` | `languageFacts/dataProvider.ts` | `HtmlDataProvider`, docs/baseline |
 | `src/language_facts/data_manager.rs` | `languageFacts/dataManager.ts` | provider registry, void/path attrs |
 | `src/language_facts/data/web_custom_data.json` | `data/webCustomData.ts` | default HTML data (116 tags) |
@@ -69,7 +70,9 @@ Mirrors upstream `src/` (paths below are relative to
 
 - **Offsets are UTF-16 code units** everywhere (scanner token offsets, node
   `start`/`end`, `Position.character`), matching JS. `TextDocument::byte_offset_at`
-  bridges to byte slices when needed.
+  bridges to byte slices when needed. `TextDocument::get_scanner_text()` caches a
+  copy with PHP blocks blanked out (same UTF-16 offsets), rebuilt only when the
+  document version changes.
 - `Node` attributes are an insertion-ordered `Vec<(String, Option<String>)>`
   (`None` = valueless), reproducing JS object key order for symbol names
   (`div#id.class`).
@@ -80,9 +83,9 @@ Mirrors upstream `src/` (paths below are relative to
 
 ## Design decisions
 
-- Zero hand-written deps beyond `serde`/`serde_json` (data loading). URI and
-  text-document logic are ported rather than pulled in, to control the exact
-  UTF-16/RFC-3986 semantics the tests assert.
+- Deps stay small: `serde`/`serde_json` (data loading) and `mago-syntax`
+  (PHP block detection). URI and text-document logic are ported rather than
+  pulled in, to control the exact UTF-16/RFC-3986 semantics the tests assert.
 - `getLanguageService()` becomes `get_language_service(LanguageServiceOptions)`;
   `LanguageServiceOptions::default()` = upstream's no-arg call.
 - `vscode-uri`'s "namespace/static" helpers become associated functions /

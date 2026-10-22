@@ -366,7 +366,8 @@ impl Scanner {
         initial_state: ScannerState,
         emit_pseudo_close_tags: bool,
     ) -> Self {
-        let units: Vec<u16> = input.encode_utf16().collect();
+        let mut units: Vec<u16> = input.encode_utf16().collect();
+        super::php::mask_php(input, &mut units);
         Self {
             stream: MultiLineStream::new(units, initial_offset),
             state: initial_state,

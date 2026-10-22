@@ -868,6 +868,49 @@ fn tag_with_hyphenated_name_and_attributes() {
 }
 
 #[test]
+fn php_block_is_skipped() {
+    assert_tokens(&[(
+        r#"<?php echo "?>"; ?><div>"#,
+        &[
+            (0, Content, None),
+            (19, StartTagOpen, None),
+            (20, StartTag, Some("div")),
+            (23, StartTagClose, None),
+        ],
+    )]);
+}
+
+#[test]
+fn php_interpolation_with_nested_string_is_skipped() {
+    let input = "<?php echo \"{$a[\"?>\"]}\"; ?><div>";
+    let divider = input[..input.find("<div>").unwrap()].encode_utf16().count();
+    let mut scanner = create_scanner(input, 0, ScannerState::WithinContent, false);
+
+    assert_eq!(scanner.scan(), Content);
+    assert_eq!(scanner.get_token_offset(), 0);
+    assert_eq!(scanner.scan(), StartTagOpen);
+    assert_eq!(scanner.get_token_offset(), divider);
+}
+
+#[test]
+fn php_line_comment_close_tag_ends_block() {
+    assert_tokens(&[(
+        "<?php // ?>\n<div>",
+        &[
+            (0, Content, None),
+            (12, StartTagOpen, None),
+            (13, StartTag, Some("div")),
+            (16, StartTagClose, None),
+        ],
+    )]);
+}
+
+#[test]
+fn php_unclosed_block_swallows_rest() {
+    assert_tokens(&[("<?php echo 1;", &[(0, Content, None)])]);
+}
+
+#[test]
 fn convert_script_content() {
     assert_eq!(
         convert_script_content_to_javascript("<!-- var x = 1; -->"),

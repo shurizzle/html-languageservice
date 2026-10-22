@@ -22,7 +22,7 @@ impl<'a> HtmlSelectionRange<'a> {
         positions: &[Position],
     ) -> Vec<SelectionRange> {
         let html_document = parse(
-            document.get_text(),
+            document.get_scanner_text(),
             &self.data_manager.get_void_elements(document.language_id()),
             ParseOptions::default(),
         );

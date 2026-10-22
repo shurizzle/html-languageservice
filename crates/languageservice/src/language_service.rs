@@ -82,7 +82,7 @@ impl LanguageService {
         options: ParseOptions,
     ) -> HtmlDocument {
         parse(
-            document.get_text(),
+            document.get_scanner_text(),
             &self.data_manager.get_void_elements(document.language_id()),
             options,
         )

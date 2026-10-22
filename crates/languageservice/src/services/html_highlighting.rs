@@ -56,7 +56,7 @@ fn get_tag_name_range(
     start_offset: usize,
 ) -> Option<Range> {
     let mut scanner = create_scanner(
-        document.get_text(),
+        document.get_scanner_text(),
         start_offset,
         ScannerState::WithinContent,
         false,

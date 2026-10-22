@@ -104,7 +104,7 @@ impl<'a> HtmlFolding<'a> {
         context: Option<&FoldingRangeContext>,
     ) -> Vec<FoldingRange> {
         let mut scanner = create_scanner(
-            document.get_text(),
+            document.get_scanner_text(),
             0,
             crate::html_language_types::ScannerState::WithinContent,
             false,

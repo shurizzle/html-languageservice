@@ -48,7 +48,7 @@ impl<'a> HtmlHover<'a> {
 
         let offset = document.offset_at(position);
         let node = html_document.node(html_document.find_node_at(offset));
-        let text = document.get_text();
+        let text = document.get_scanner_text();
         let units: Vec<u16> = text.encode_utf16().collect();
         let node_tag = node.tag.clone()?;
         let data_providers: Vec<&dyn IHtmlDataProvider> = self

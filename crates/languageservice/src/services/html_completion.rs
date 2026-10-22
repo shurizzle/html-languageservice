@@ -104,7 +104,7 @@ impl<'a> HtmlCompletion<'a> {
             data_providers: &data_providers,
             does_support_markdown: self.supports_markdown,
             data_manager: self.data_manager,
-            text: document.get_text(),
+            text: document.get_scanner_text(),
             units: document.get_text().encode_utf16().collect(),
             offset,
             node,
@@ -301,7 +301,7 @@ impl<'a> HtmlCompletion<'a> {
             && node.end_tag_start.is_none_or(|end| end > offset)
         {
             let mut scanner = create_scanner(
-                document.get_text(),
+                document.get_scanner_text(),
                 node.start,
                 ScannerState::WithinContent,
                 false,
@@ -349,7 +349,7 @@ impl<'a> HtmlCompletion<'a> {
                 let void_elements = self.data_manager.get_void_elements(document.language_id());
                 if !self.data_manager.is_void_element(tag, &void_elements) {
                     let mut scanner = create_scanner(
-                        document.get_text(),
+                        document.get_scanner_text(),
                         node.start,
                         ScannerState::WithinContent,
                         false,
@@ -378,7 +378,7 @@ impl<'a> HtmlCompletion<'a> {
             let node = html_document.node(curr);
             if let Some(tag) = &node.tag {
                 let mut scanner = create_scanner(
-                    document.get_text(),
+                    document.get_scanner_text(),
                     node.start,
                     ScannerState::WithinContent,
                     false,

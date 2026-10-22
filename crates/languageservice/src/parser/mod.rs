@@ -3,6 +3,8 @@
 pub mod html_entities;
 pub mod html_parser;
 pub mod html_scanner;
+mod php;
 
 pub use html_parser::{HtmlDocument, Node, NodeId, ParseOptions, parse};
 pub use html_scanner::{Scanner, convert_script_content_to_javascript, create_scanner};
+pub(crate) use php::{mask_text, may_contain_php};
