@@ -106,10 +106,16 @@ impl Settings {
     pub fn from_value(value: &Value) -> Self {
         let section = value.get("html").unwrap_or(value);
         Settings {
-            format: section
-                .get("format")
-                .and_then(|value| serde_json::from_value(value.clone()).ok())
-                .unwrap_or_default(),
+            format: match section.get("format") {
+                Some(value) => match serde_json::from_value(value.clone()) {
+                    Ok(format) => format,
+                    Err(error) => {
+                        eprintln!("html-languageserver: invalid format settings: {error}");
+                        HTMLFormatConfiguration::default()
+                    }
+                },
+                None => HTMLFormatConfiguration::default(),
+            },
             completion: CompletionSettings::from_value(section.get("completion")),
             custom_data: inline_data(section),
             use_default_data_provider: section

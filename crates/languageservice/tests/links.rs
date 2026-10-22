@@ -250,6 +250,29 @@ fn link_detection() {
 }
 
 #[test]
+fn unclosed_quoted_refs_yield_no_links() {
+    for content in ["<a href=\"", "<a href='", "<link rel=\"icon\" href=\""] {
+        let document = TextDocument::create("file:///test/data/abc/test.html", "html", 0, content);
+        let ls = get_language_service(LanguageServiceOptions::default());
+        let links = ls.find_document_links(&document, &TestDocumentContext);
+        assert!(links.is_empty(), "unexpected links for {content:?}");
+    }
+}
+
+#[test]
+fn non_ascii_refs_do_not_panic() {
+    for content in [
+        "<a href=\"abcdefghij😀\">x</a>",
+        "<a href=\"€€€€\">x</a>",
+        "<a href=\"file:///€%FF\">x</a>",
+    ] {
+        let document = TextDocument::create("file:///test/data/abc/test.html", "html", 0, content);
+        let ls = get_language_service(LanguageServiceOptions::default());
+        let _ = ls.find_document_links(&document, &TestDocumentContext);
+    }
+}
+
+#[test]
 fn local_targets() {
     test_link_detection(
         r##"<body><h1 id="title"></h1><a href="#title"</a></body>"##,

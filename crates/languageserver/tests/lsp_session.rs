@@ -252,3 +252,40 @@ fn explicit_config_ignores_the_workspace_file() {
     client.open("<div><span>x</span></div>");
     assert!(!client.format().ends_with('\n'));
 }
+
+#[test]
+fn invalid_format_option_falls_back_and_keeps_running() {
+    let dir = TempDir::new("invalid-format-option");
+    dir.write(".html.toml", "[format]\nwrap_attributes = \"banana\"\n");
+
+    let mut client = Client::start(&["--stdio"]);
+    client.initialize(Some(&dir.0));
+    client.open("<div  class=\"x\"></div>");
+
+    let response = client.request(
+        "textDocument/formatting",
+        json!({
+            "textDocument": { "uri": "file:///workspace/test.html" },
+            "options": { "tabSize": 4, "insertSpaces": true }
+        }),
+    );
+    assert!(
+        response.get("error").is_none(),
+        "invalid option must not fail the request: {response}"
+    );
+    let edits = response["result"].as_array().cloned().unwrap_or_default();
+    assert!(!edits.is_empty());
+
+    // The server still answers requests.
+    let response = client.request(
+        "textDocument/hover",
+        json!({
+            "textDocument": { "uri": "file:///workspace/test.html" },
+            "position": { "line": 0, "character": 1 }
+        }),
+    );
+    assert!(
+        response.get("error").is_none(),
+        "server stopped answering: {response}"
+    );
+}

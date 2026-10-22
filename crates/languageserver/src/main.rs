@@ -5,8 +5,10 @@
 //! `Deserialize` structs, so the crate does not depend on a specific
 //! `lsp-types` release.
 
+use std::any::Any;
 use std::collections::HashMap;
 use std::error::Error;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -568,6 +570,17 @@ impl DocumentContext for UrlResolver {
     }
 }
 
+/// Extracts the message from a panic payload.
+fn panic_message(payload: &(dyn Any + Send)) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        (*message).to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "internal error".to_string()
+    }
+}
+
 fn parse<P: for<'de> Deserialize<'de>>(req: &Request) -> Result<P, Response> {
     serde_json::from_value(req.params.clone()).map_err(|e| {
         Response::new_err(
@@ -704,9 +717,29 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                     shutdown_received.store(true, Ordering::SeqCst);
                     break;
                 }
-                server.handle_request(&connection, req)?;
+                let id = req.id.clone();
+                if let Err(payload) =
+                    catch_unwind(AssertUnwindSafe(|| server.handle_request(&connection, req)))
+                {
+                    let error = panic_message(payload.as_ref());
+                    eprintln!("html-languageserver: request failed: {error}");
+                    let _ = connection.sender.send(Message::Response(Response::new_err(
+                        id,
+                        ErrorCode::InternalError as i32,
+                        error,
+                    )));
+                }
             }
-            Message::Notification(not) => server.handle_notification(&connection, not),
+            Message::Notification(not) => {
+                if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
+                    server.handle_notification(&connection, not)
+                })) {
+                    eprintln!(
+                        "html-languageserver: notification failed: {}",
+                        panic_message(payload.as_ref())
+                    );
+                }
+            }
             Message::Response(response) => {
                 let is_configuration = server.configuration_request.as_ref() == Some(&response.id);
                 if is_configuration {

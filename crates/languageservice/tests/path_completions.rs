@@ -1011,3 +1011,10 @@ fn prioritize_image_files_for_link_rel_icon() {
         &root_uri(),
     );
 }
+
+#[test]
+fn unclosed_quote_after_equals_does_not_panic() {
+    for value in ["<img src=|\"", "<script src=|'"] {
+        test_completion2_for(value, &Expected::default(), &index_uri(), &root_uri());
+    }
+}

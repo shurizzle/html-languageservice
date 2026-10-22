@@ -1,8 +1,8 @@
 //! Port of `src/test/formatter.test.ts`.
 
 use html_languageservice::{
-    HTMLFormatConfiguration, LanguageServiceOptions, Range, TextDocument, apply_edits,
-    get_language_service,
+    HTMLFormatConfiguration, LanguageServiceOptions, Range, TemplatingFormatOption, TextDocument,
+    apply_edits, get_language_service,
 };
 
 fn create_service() -> html_languageservice::LanguageService {
@@ -770,4 +770,64 @@ fn empty_document_with_end_with_newline_returns_valid_range() {
 fn already_formatted_document_returns_no_edits() {
     let edits = assert_range_within_document("<div>\n  <br>\n</div>", None);
     assert!(edits.is_empty());
+}
+
+#[test]
+fn range_after_non_ascii_text() {
+    let text = "😀<div  class = \"foo\"><br></div>";
+    let document = TextDocument::create("test://test.html", "html", 0, text);
+    let start = text.find('<').unwrap();
+    let start = text[..start].encode_utf16().count() as u32;
+    let end = text.encode_utf16().count() as u32;
+    let options = HTMLFormatConfiguration {
+        tab_size: Some(2),
+        insert_spaces: Some(true),
+        unformatted: Some(String::new()),
+        ..Default::default()
+    };
+    let edits = create_service().format(&document, Some(Range::create(0, start, 0, end)), &options);
+    let formatted = apply_edits(&document, &edits);
+    assert_eq!(formatted, "😀<div class=\"foo\"><br></div>");
+}
+
+#[test]
+fn invalid_options_fall_back_to_defaults() {
+    let text = "<div  class = \"foo\"><br></div>";
+    let document = TextDocument::create("test://test.html", "html", 0, text);
+    let options = HTMLFormatConfiguration {
+        tab_size: Some(2),
+        insert_spaces: Some(true),
+        wrap_attributes: Some("banana".to_string()),
+        indent_scripts: Some("banana".to_string()),
+        templating: Some(TemplatingFormatOption::List(vec!["xxx".to_string()])),
+        ..Default::default()
+    };
+    let edits = create_service().format(&document, None, &options);
+    assert_eq!(
+        apply_edits(&document, &edits),
+        "<div class=\"foo\"><br></div>"
+    );
+}
+
+#[test]
+fn zero_or_negative_tab_size_with_range_does_not_panic() {
+    let text = "<p>\n  <div  class=\"x\"></div></p>";
+    let document = TextDocument::create("test://test.html", "html", 0, text);
+    let start = text.find("<div").unwrap();
+    let start = text[..start].encode_utf16().count() as u32;
+    let end = text.encode_utf16().count() as u32;
+    let range = Some(Range {
+        start: document.position_at(start as usize),
+        end: document.position_at(end as usize),
+    });
+    for tab_size in [0, -2] {
+        let options = HTMLFormatConfiguration {
+            tab_size: Some(tab_size),
+            insert_spaces: Some(true),
+            unformatted: Some(String::new()),
+            ..Default::default()
+        };
+        let edits = create_service().format(&document, range, &options);
+        assert!(!apply_edits(&document, &edits).contains("  class"));
+    }
 }

@@ -205,10 +205,13 @@ struct ExtensionFilter {
 /// Port of `stripQuotes` (removes a single leading/trailing quote pair).
 fn strip_quotes(full_value: &str) -> String {
     if starts_with(full_value, "'") || starts_with(full_value, "\"") {
-        full_value[1..full_value.len().saturating_sub(1)].to_string()
-    } else {
-        full_value.to_string()
+        let mut chars = full_value.chars();
+        chars.next();
+        let mut inner: Vec<char> = chars.collect();
+        inner.pop();
+        return inner.into_iter().collect();
     }
+    full_value.to_string()
 }
 
 fn is_completable_path(value: &str) -> bool {
@@ -223,7 +226,7 @@ fn path_to_replace_range(value_before_cursor: &str, full_value: &str, range: Ran
     let value_after_last_slash = &full_value[last_slash + 1..];
     let start_pos = shift_position(
         range.end,
-        -1 - value_after_last_slash.chars().count() as i64,
+        -1 - value_after_last_slash.encode_utf16().count() as i64,
     );
 
     let end_pos = match value_after_last_slash.find(' ') {

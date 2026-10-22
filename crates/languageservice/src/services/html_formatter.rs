@@ -4,7 +4,7 @@ use regex::Regex;
 use std::sync::OnceLock;
 
 use crate::beautify::html::html_beautify;
-use crate::beautify::options::{OptValue, RawOptions};
+use crate::beautify::options::{OptValue, RawOptions, warn_once};
 use crate::text_document::TextDocument;
 use crate::types::{
     EmbeddedCSSFormatConfiguration, HTMLFormatConfiguration, Position, Range,
@@ -20,12 +20,12 @@ pub fn format(
     let mut value = document.get_text().to_string();
     let mut includes_end = true;
     let mut initial_indent_level = 0i64;
-    let tab_size = options.tab_size.unwrap_or(4) as i64;
+    let tab_size = tab_size(options);
     let mut range = range;
 
     if let Some(r) = range {
-        let mut start_offset = document.offset_at(r.start);
-        let mut end_offset = document.offset_at(r.end);
+        let mut start_offset = document.byte_offset_at(document.offset_at(r.start));
+        let mut end_offset = document.byte_offset_at(document.offset_at(r.end));
 
         if let Some((s, e)) = expand_range_to_ignore_block(&value, start_offset, end_offset) {
             start_offset = s;
@@ -39,7 +39,11 @@ pub fn format(
         if extended_start == 0 || is_eol(&value, extended_start - 1) {
             start_offset = extended_start;
         } else if extended_start < start_offset {
-            start_offset = extended_start + 1;
+            start_offset = extended_start
+                + value[extended_start..]
+                    .chars()
+                    .next()
+                    .map_or(0, char::len_utf8);
         }
 
         let mut extended_end = end_offset;
@@ -50,8 +54,8 @@ pub fn format(
             end_offset = extended_end;
         }
 
-        let start_position = document.position_at(start_offset);
-        let end_position = document.position_at(end_offset);
+        let start_position = position_at_byte(document, start_offset);
+        let end_position = position_at_byte(document, end_offset);
         range = Some(Range {
             start: start_position,
             end: end_position,
@@ -73,13 +77,13 @@ pub fn format(
         value = value[start_offset..end_offset].to_string();
 
         if start_offset != 0 {
-            let start_of_line_offset =
-                document.offset_at(Position::create(range.unwrap().start.line, 0));
+            let start_of_line_offset = document
+                .byte_offset_at(document.offset_at(Position::create(range.unwrap().start.line, 0)));
             initial_indent_level =
                 compute_indent_level(document.get_text(), start_of_line_offset, options);
         }
     } else {
-        let end = document.position_at(value.len());
+        let end = document.position_at(value.encode_utf16().count());
         range = Some(Range {
             start: Position::create(0, 0),
             end,
@@ -108,7 +112,7 @@ pub fn format(
         return Vec::new();
     }
 
-    let document_end = document.position_at(document.get_text().len());
+    let document_end = position_at_byte(document, document.get_text().len());
     let r = range.unwrap();
     if r.end.line > document_end.line
         || (r.end.line == document_end.line && r.end.character > document_end.character)
@@ -272,6 +276,16 @@ fn get_bool(value: Option<bool>, default: bool) -> bool {
     value.unwrap_or(default)
 }
 
+fn tab_size(options: &HTMLFormatConfiguration) -> i64 {
+    let configured = options.tab_size.unwrap_or(4);
+    if configured < 1 {
+        warn_once(format!("invalid tab size `{configured}`; using 1 instead"));
+        1
+    } else {
+        configured as i64
+    }
+}
+
 fn get_num(value: Option<i32>, default: i32) -> i32 {
     value.unwrap_or(default)
 }
@@ -296,7 +310,7 @@ fn get_templating_format_option(options: &HTMLFormatConfiguration) -> Vec<String
 
 /// Port of `computeIndentLevel`.
 fn compute_indent_level(content: &str, offset: usize, options: &HTMLFormatConfiguration) -> i64 {
-    let tab_size = options.tab_size.unwrap_or(4) as i64;
+    let tab_size = tab_size(options);
     let mut n_chars = 0i64;
     for ch in content[offset..].chars() {
         if ch == ' ' {
@@ -312,6 +326,13 @@ fn compute_indent_level(content: &str, offset: usize, options: &HTMLFormatConfig
 
 fn is_eol(text: &str, offset: usize) -> bool {
     matches!(text.as_bytes().get(offset), Some(b'\r') | Some(b'\n'))
+}
+
+/// Converts a byte offset into a [`Position`] (UTF-16 character offset).
+fn position_at_byte(document: &TextDocument, byte_offset: usize) -> Position {
+    let text = document.get_text();
+    let byte_offset = byte_offset.min(text.len());
+    document.position_at(text[..byte_offset].encode_utf16().count())
 }
 
 fn is_whitespace(text: &str, offset: usize) -> bool {

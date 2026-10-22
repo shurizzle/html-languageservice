@@ -12,11 +12,12 @@ const HASH: u16 = '#' as u16;
 
 fn normalize_ref(url: &str) -> String {
     let units: Vec<u16> = url.encode_utf16().collect();
-    if let (Some(&first), Some(&last)) = (units.first(), units.last())
-        && first == last
-        && (first == '\'' as u16 || first == '"' as u16)
-    {
-        return String::from_utf16_lossy(&units[1..units.len() - 1]);
+    if units.len() >= 2 {
+        let first = units[0];
+        let last = units[units.len() - 1];
+        if first == last && (first == '\'' as u16 || first == '"' as u16) {
+            return String::from_utf16_lossy(&units[1..units.len() - 1]);
+        }
     }
     url.to_string()
 }
@@ -57,7 +58,8 @@ fn validate_ref(url: &str, language_id: &str) -> bool {
 /// Port of `^\s*javascript\:` (case-insensitive).
 fn is_javascript_uri(s: &str) -> bool {
     let rest = s.trim_start_matches(is_js_whitespace_char);
-    rest.len() >= 11 && rest[..11].eq_ignore_ascii_case("javascript:")
+    rest.get(..11)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("javascript:"))
 }
 
 fn is_js_whitespace_char(c: char) -> bool {

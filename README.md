@@ -132,8 +132,9 @@ let _ = service.do_complete2(&document, position, &html_document, &Context, None
   are implemented in `crates/languageservice/src/types.rs` rather than
   pulled from `vscode-languageserver-types`, with only the fields the services
   use.
-- **Rust error handling.** Some upstream `throw`s become `panic!`/`assert!`
-  (invalid beautify options), others become `Result` (`Uri::parse`).
+- **Rust error handling.** Upstream `throw`s become `Result` (`Uri::parse`);
+  invalid beautify options are ignored (and logged to stderr) instead of
+  throwing; a `tab_size` below 1 is treated as 1.
 - **Deprecated aliases.** `findOnTypeRenameRanges` and
   `parseHTMLDocument(document, options)` are exposed as
   `find_on_type_rename_ranges` and `parse_html_document_with_options`.

@@ -1,6 +1,21 @@
 //! Port of the js-beautify option handling (`Options`, `_mergeOpts`, `_normalizeOpts`).
 
 use std::collections::BTreeMap;
+use std::collections::HashSet;
+use std::sync::{Mutex, OnceLock};
+
+/// Logs a diagnostic once per process, so repeated format requests do not
+/// flood stderr with the same warning.
+pub(crate) fn warn_once(message: String) {
+    static SEEN: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    let seen = SEEN.get_or_init(|| Mutex::new(HashSet::new()));
+    let Ok(mut seen) = seen.lock() else {
+        return;
+    };
+    if seen.insert(message.clone()) {
+        eprintln!("html-languageservice: {message}");
+    }
+}
 
 /// A value of the js-beautify options object.
 #[derive(Debug, Clone, PartialEq)]
@@ -179,39 +194,69 @@ pub fn get_string_array(raw: &RawOptions, name: &str, default: &[&str]) -> Vec<S
 }
 
 /// Port of `_is_valid_selection` + `_get_selection_list`.
+///
+/// Invalid values are dropped; when nothing valid remains the default is used
+/// instead of throwing like js-beautify does.
 pub fn get_selection_list(
     raw: &RawOptions,
     name: &str,
     selection_list: &[&str],
     default_value: Option<Vec<&str>>,
 ) -> Vec<String> {
-    let default_value = default_value.unwrap_or_else(|| vec![selection_list[0]]);
-    let result = get_string_array(raw, name, &default_value);
-    let valid = !result.is_empty()
-        && !selection_list.is_empty()
-        && result
-            .iter()
-            .all(|item| selection_list.contains(&item.as_str()));
-    if !valid {
-        panic!("Invalid Option Value: The option '{name}' can contain only valid values.");
+    let default_value: Vec<String> = default_value
+        .map(|values| values.into_iter().map(str::to_string).collect())
+        .unwrap_or_else(|| {
+            selection_list
+                .first()
+                .map(|value| vec![(*value).to_string()])
+                .unwrap_or_default()
+        });
+    let raw_values = get_string_array(raw, name, &[]);
+    let invalid: Vec<String> = raw_values
+        .iter()
+        .filter(|item| !selection_list.contains(&item.as_str()))
+        .cloned()
+        .collect();
+    let result: Vec<String> = raw_values
+        .into_iter()
+        .filter(|item| selection_list.contains(&item.as_str()))
+        .collect();
+    if !invalid.is_empty() {
+        warn_once(format!(
+            "ignoring invalid value(s) for option `{name}`: {} (allowed: {})",
+            invalid.join(", "),
+            selection_list.join(", ")
+        ));
     }
-    result
+    if result.is_empty() {
+        if !invalid.is_empty() {
+            warn_once(format!(
+                "using default for option `{name}`: {}",
+                default_value.join(", ")
+            ));
+        }
+        default_value
+    } else {
+        result
+    }
 }
 
-/// Port of `_get_selection`.
+/// Port of `_get_selection`. Multiple valid values keep the first one.
 pub fn get_selection(
     raw: &RawOptions,
     name: &str,
     selection_list: &[&str],
     default_value: Option<Vec<&str>>,
 ) -> String {
-    let result = get_selection_list(raw, name, selection_list, default_value);
-    assert_eq!(
-        result.len(),
-        1,
-        "Invalid Option Value: The option '{name}' can only be one of the listed values."
-    );
-    result[0].clone()
+    let mut result = get_selection_list(raw, name, selection_list, default_value);
+    if result.len() > 1 {
+        warn_once(format!(
+            "option `{name}` accepts a single value, using `{}`",
+            result[0]
+        ));
+        result.truncate(1);
+    }
+    result.into_iter().next().unwrap_or_default()
 }
 
 /// Port of the base js-beautify `Options` class.
@@ -287,5 +332,62 @@ impl BaseOptions {
             templating,
             raw_options,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn raw(name: &str, value: OptValue) -> RawOptions {
+        let mut options = RawOptions::new();
+        options.insert(name.to_string(), value);
+        options
+    }
+
+    #[test]
+    fn invalid_selection_falls_back_to_the_first_default() {
+        let options = raw("wrap_attributes", OptValue::Str("banana".to_string()));
+        assert_eq!(
+            get_selection(&options, "wrap_attributes", &["auto", "force"], None),
+            "auto"
+        );
+    }
+
+    #[test]
+    fn invalid_selection_list_values_are_dropped() {
+        let options = raw("templating", OptValue::Str("django,xxx".to_string()));
+        assert_eq!(
+            get_selection_list(
+                &options,
+                "templating",
+                &["auto", "django"],
+                Some(vec!["auto"])
+            ),
+            vec!["django"]
+        );
+    }
+
+    #[test]
+    fn empty_selection_list_uses_the_default() {
+        let options = raw("templating", OptValue::Str(String::new()));
+        assert_eq!(
+            get_selection_list(&options, "templating", &["auto"], Some(vec!["auto"])),
+            vec!["auto"]
+        );
+    }
+
+    #[test]
+    fn multiple_valid_selections_keep_the_first() {
+        let options = raw("wrap_attributes", OptValue::Str("force,expand".to_string()));
+        assert_eq!(
+            get_selection(
+                &options,
+                "wrap_attributes",
+                &["auto", "force", "expand"],
+                None
+            ),
+            "force"
+        );
     }
 }
