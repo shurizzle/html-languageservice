@@ -1,0 +1,65 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: aarch64-apple-darwin, os: macos-latest }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest }
+          - { target: aarch64-pc-windows-msvc, os: windows-latest }
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest, cross: true }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-latest, cross: true }
+          - { target: x86_64-unknown-freebsd, os: ubuntu-latest, cross: true }
+          # Tier 3: no rustup std, so build it from source on a pinned nightly.
+          - { target: aarch64-unknown-freebsd, os: ubuntu-latest, cross: true, toolchain: nightly-2026-11-20, build_std: true }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain || 'stable' }}
+          targets: ${{ !matrix.build_std && matrix.target || '' }}
+          components: ${{ matrix.build_std && 'rust-src' || '' }}
+      - if: matrix.cross && !matrix.build_std
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+      # The aarch64-unknown-freebsd image is not in a cross release yet.
+      - if: matrix.build_std
+        run: cargo install cross --git https://github.com/cross-rs/cross --rev a9301e91f72bba3850460512685f6b16062015ff --locked
+      - name: Build
+        shell: bash
+        run: ${{ matrix.cross && 'cross' || 'cargo' }} build ${{ matrix.build_std && '-Zbuild-std' || '' }} --release --locked -p html-languageserver --target ${{ matrix.target }}
+      - name: Package
+        shell: bash
+        run: |
+          dir=target/${{ matrix.target }}/release
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            7z a "html-languageserver-${{ matrix.target }}.zip" "./$dir/html-languageserver.exe"
+          else
+            tar czf "html-languageserver-${{ matrix.target }}.tar.gz" -C "$dir" html-languageserver
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.target }}
+          path: html-languageserver-${{ matrix.target }}.*
+
+  release:
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: html-languageserver-*
